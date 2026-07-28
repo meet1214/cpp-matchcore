@@ -25,4 +25,8 @@ class OrderBook {
         std::map<double, std::deque<Order>, std::less<double>> asks_;
         std::unordered_map<uint64_t, Location> orderIndex_;
         mutable std::mutex mutex_;
+        uint64_t nextOrderSequence_ = 0;
+        uint64_t nextTradeSequence_ = 0;
+        std::vector<Trade> matchAgainstAsks(Order& incoming);
+        std::vector<Trade> matchAgainstBids(Order& incoming);
 };
