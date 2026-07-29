@@ -19,3 +19,6 @@ add_executable(matchcore_tests
 )
 
 target_include_directories(matchcore_tests PRIVATE include)
+
+add_executable(matchcore_server src/main_server.cpp src/Server.cpp src/OrderBook.cpp)
+target_include_directories(matchcore_server PRIVATE include)
