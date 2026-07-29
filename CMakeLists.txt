@@ -12,3 +12,10 @@ add_executable(matchcore_demo
 )
 
 target_include_directories(matchcore_demo PRIVATE include)
+
+add_executable(matchcore_tests
+    tests/test_orderbook.cpp
+    src/OrderBook.cpp
+)
+
+target_include_directories(matchcore_tests PRIVATE include)
