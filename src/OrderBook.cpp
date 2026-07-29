@@ -92,3 +92,76 @@ std::vector<Trade> OrderBook::matchAgainstBids(Order& incoming) {
 
     return trades;
 }
+
+bool OrderBook::cancelOrder(uint64_t orderId) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    auto it = orderIndex_.find(orderId);
+    if (it == orderIndex_.end()) {
+        return false;
+    }
+
+    Location loc = it->second;
+
+    if(loc.side == Side::Buy) {
+        auto levelIt = bids_.find(loc.price);
+        auto &dq = levelIt->second;
+        auto orderIt = std::find_if(dq.begin(),dq.end(), 
+          [orderId](const Order& o) {return o.id ==orderId; });
+        dq.erase(orderIt);
+        if(dq.empty()) {
+            bids_.erase(levelIt);
+        }
+
+    } else {
+        auto levelIt = asks_.find(loc.price);
+        auto& dq = levelIt->second;
+        auto orderIt = std::find_if(dq.begin(), dq.end(),
+            [orderId](const Order& o) { return o.id == orderId; });
+        dq.erase(orderIt);
+        if (dq.empty()) {
+            asks_.erase(levelIt);
+        }
+    }
+
+    orderIndex_.erase(it);
+    return true;
+}
+
+std::optional<double> OrderBook::bestBid() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (bids_.empty()) {
+        return std::nullopt;
+    }
+    return bids_.begin()->first;
+}
+
+std::optional<double> OrderBook::bestAsk() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (asks_.empty()) {
+        return std::nullopt;
+    }
+    return asks_.begin()->first;
+}
+
+uint64_t OrderBook::bidDepth() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    uint64_t total = 0;
+    for (const auto& [price, dq] : bids_) {
+        for (const auto& order : dq) {
+            total += order.quantity;
+        }
+    }
+    return total;
+}
+
+uint64_t OrderBook::askDepth() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    uint64_t total = 0;
+    for (const auto& [price, dq] : asks_) {
+        for (const auto& order : dq) {
+            total += order.quantity;
+        }
+    }
+    return total;
+}
