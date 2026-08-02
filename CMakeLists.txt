@@ -7,6 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(SQLite3 REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 add_executable(matchcore_demo
     src/main.cpp
@@ -25,6 +26,10 @@ add_executable(matchcore_server
     src/Server.cpp
     src/OrderBook.cpp
     src/TradeLogger.cpp
+    src/UserStore.cpp
 )
 target_include_directories(matchcore_server PRIVATE include)
-target_link_libraries(matchcore_server PRIVATE SQLite::SQLite3)
+target_link_libraries(matchcore_server PRIVATE SQLite::SQLite3 OpenSSL::Crypto)
+
+add_executable(matchcore_client src/Client.cpp)
+target_include_directories(matchcore_client PRIVATE include)

@@ -1,5 +1,4 @@
 #include "Server.h"
-#include <cstdint>
 #include <iostream>
 #include <sstream>
 #include <unistd.h>
@@ -18,7 +17,7 @@ void sendAll(int fd, const std::string& data) {
 }
 
 Server::Server(int port, std::size_t threadCount, const std::string& dbPath)
-    : port_(port), pool_(threadCount), logger_(dbPath) {}
+    : port_(port), pool_(threadCount), logger_(dbPath), userStore_(dbPath) {}
 
 void Server::run() {
     int listenFd = socket(AF_INET, SOCK_STREAM, 0);
@@ -42,6 +41,7 @@ void Server::run() {
         int clientFd = accept(listenFd, nullptr, nullptr);
         if (clientFd < 0) { perror("accept failed"); continue; }
         std::cout << "Client connected: fd=" << clientFd << "\n";
+        sendAll(clientFd, "Welcome to MatchCore. Type HELP for commands.\n");
         pool_.submit([this, clientFd] { handleClient(clientFd); });
     }
 }
@@ -73,45 +73,97 @@ void Server::handleLine(const std::string& line, int clientFd, ClientSession& se
     std::ostringstream response;
 
     if (cmd == "BUY" || cmd == "SELL") {
-        if(!session.authenticated) {
-            response << "NOT_AUTHENTICATED\n";
+        if (!session.authenticated) {
+            response << "You must log in before placing orders. Use the login menu.\n";
         } else {
             double price;
             uint64_t qty;
             iss >> price >> qty;
-            if(iss.fail() || price <= 0 || qty == 0){
-                response << "INVALID_ORDER\n";
+            if (iss.fail() || price <= 0 || qty == 0) {
+                response << "Invalid order. Usage: BUY <price> <qty> or SELL <price> <qty>, both positive.\n";
             } else {
                 Order order{nextOrderId_++, session.clientId, cmd == "BUY" ? Side::Buy : Side::Sell, price, qty, 0};
                 auto trades = book_.addOrder(order);
                 for (auto& t : trades) logger_.log(t);
-                response << "ACCEPTED id=" << order.id << " trades=" << trades.size() << "\n";
+
+                uint64_t filled = 0;
+                for (auto& t : trades) filled += t.quantity;
+                uint64_t remaining = qty - filled;
+
+                response << "Order #" << order.id << " placed: " << cmd << " " << qty << " @ " << price << "\n";
                 for (auto& t : trades) {
-                    response << "TRADE price=" << t.price << " qty=" << t.quantity << "\n";
+                    response << "  -> Matched " << t.quantity << " @ " << t.price << "\n";
+                }
+                if (remaining > 0) {
+                    response << "  -> " << remaining << " resting on the book\n";
+                } else if (!trades.empty()) {
+                    response << "  -> Fully filled\n";
                 }
             }
         }
-    } else if(cmd == "LOGIN") {
-        std::string username, token;
-        iss >> username >> token;
-        auto it = credentials_.find(username);
-        if (it != credentials_.end() && it->second == token) {
-            session.authenticated = true;
-            session.clientId = clientIds_[username];
-            response << "LOGIN_OK\n";
+    } else if (cmd == "LOGIN") {
+        std::string accountNumber, password;
+        iss >> accountNumber >> password;
+        if (iss.fail()) {
+            response << "Usage: LOGIN <accountNumber> <password>\n";
         } else {
-            response << "AUTH_FAILED\n";
+            uint64_t clientId;
+            if (userStore_.verifyUser(accountNumber, password, clientId)) {
+                session.authenticated = true;
+                session.clientId = clientId;
+                response << "Welcome back! You're now logged in.\n";
+            } else {
+                response << "Login failed: invalid account number or password.\n";
+            }
+        }
+    } else if (cmd == "REGISTER") {
+        std::string password;
+        iss >> password;
+        std::string name;
+        std::getline(iss, name);
+        // getline includes the leading space left after >> password — trim it
+        if (!name.empty() && name[0] == ' ') name.erase(0, 1);
+
+        if (password.empty() || name.empty()) {
+            response << "Usage: REGISTER <password> <full name>\n";
+        } else {
+            std::string accountNumber;
+            if (userStore_.registerUser(name, password, accountNumber)) {
+                response << "Account created for " << name << ". Your account number is "
+                        << accountNumber << " — save it, you'll need it to log in.\n";
+            } else {
+                response << "Registration failed.\n";
+            }
         }
     } else if (cmd == "CANCEL") {
         uint64_t id; iss >> id;
-        if(!session.authenticated) {
-            response << "NOT_AUTHENTICATED\n";
+        if (!session.authenticated) {
+            response << "You must log in before cancelling orders.\n";
         } else {
             bool ok = book_.cancelOrder(id);
-            response << (ok ? "CANCELLED\n" : "NOT_FOUND\n");
+            response << (ok ? "Order #" + std::to_string(id) + " cancelled.\n"
+                            : "No resting order found with ID " + std::to_string(id) + ".\n");
         }
+    } else if (cmd == "BOOK") {
+        auto bid = book_.bestBid();
+        auto ask = book_.bestAsk();
+        response << "----- Order Book -----\n"
+                  << "Best Bid: " << (bid ? std::to_string(*bid) : "none")
+                  << "  (depth: " << book_.bidDepth() << ")\n"
+                  << "Best Ask: " << (ask ? std::to_string(*ask) : "none")
+                  << "  (depth: " << book_.askDepth() << ")\n"
+                  << "-----------------------\n";
+    } else if (cmd == "HELP") {
+        response << "Commands:\n"
+                  << "  REGISTER <name> <password>\n"
+                  << "  LOGIN <accountNumber> <password>\n"
+                  << "  BUY <price> <qty>\n"
+                  << "  SELL <price> <qty>\n"
+                  << "  CANCEL <orderId>\n"
+                  << "  BOOK\n"
+                  << "  HELP\n";
     } else {
-        response << "UNKNOWN_COMMAND\n";
+        response << "Unknown command '" << cmd << "'. Type HELP to see available commands.\n";
     }
 
     sendAll(clientFd, response.str());
