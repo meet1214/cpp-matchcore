@@ -16,7 +16,8 @@ void sendAll(int fd, const std::string& data) {
 }
 }
 
-Server::Server(int port, std::size_t threadCount) : port_(port), pool_(threadCount) {}
+Server::Server(int port, std::size_t threadCount, const std::string& dbPath)
+    : port_(port), pool_(threadCount), logger_(dbPath) {}
 
 void Server::run() {
     int listenFd = socket(AF_INET, SOCK_STREAM, 0);
@@ -74,6 +75,7 @@ void Server::handleLine(const std::string& line, int clientFd) {
         iss >> price >> qty;
         Order order{nextOrderId_++, 1, cmd == "BUY" ? Side::Buy : Side::Sell, price, qty, 0};
         auto trades = book_.addOrder(order);
+        for (auto& t : trades) logger_.log(t);
         response << "ACCEPTED id=" << order.id << " trades=" << trades.size() << "\n";
         for (auto& t : trades) {
             response << "TRADE price=" << t.price << " qty=" << t.quantity << "\n";

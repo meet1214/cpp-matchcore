@@ -6,19 +6,25 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+find_package(SQLite3 REQUIRED)
+
 add_executable(matchcore_demo
     src/main.cpp
     src/OrderBook.cpp
 )
-
 target_include_directories(matchcore_demo PRIVATE include)
 
 add_executable(matchcore_tests
     tests/test_orderbook.cpp
     src/OrderBook.cpp
 )
-
 target_include_directories(matchcore_tests PRIVATE include)
 
-add_executable(matchcore_server src/main_server.cpp src/Server.cpp src/OrderBook.cpp)
+add_executable(matchcore_server
+    src/main_server.cpp
+    src/Server.cpp
+    src/OrderBook.cpp
+    src/TradeLogger.cpp
+)
 target_include_directories(matchcore_server PRIVATE include)
+target_link_libraries(matchcore_server PRIVATE SQLite::SQLite3)
