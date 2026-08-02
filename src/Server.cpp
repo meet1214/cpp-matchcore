@@ -20,29 +20,39 @@ Server::Server(int port, std::size_t threadCount, const std::string& dbPath)
     : port_(port), pool_(threadCount), logger_(dbPath), userStore_(dbPath) {}
 
 void Server::run() {
-    int listenFd = socket(AF_INET, SOCK_STREAM, 0);
-    if (listenFd < 0) { perror("socket failed"); return; }
+    listenFd_ = socket(AF_INET, SOCK_STREAM, 0);
+    if (listenFd_ < 0) { perror("socket failed"); return; }
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_port = htons(port_);
 
-    if (bind(listenFd, (sockaddr*)&addr, sizeof(addr)) < 0) {
-        perror("bind failed"); close(listenFd); return;
+    if (bind(listenFd_, (sockaddr*)&addr, sizeof(addr)) < 0) {
+        perror("bind failed"); close(listenFd_); return;
     }
-    if (listen(listenFd, 16) < 0) {
-        perror("listen failed"); close(listenFd); return;
+    if (listen(listenFd_, 16) < 0) {
+        perror("listen failed"); close(listenFd_); return;
     }
 
     std::cout << "Listening on port " << port_ << "\n";
 
-    while (true) {
-        int clientFd = accept(listenFd, nullptr, nullptr);
+    while (!stopping_) {
+        int clientFd = accept(listenFd_, nullptr, nullptr);
+        if (stopping_) break;
         if (clientFd < 0) { perror("accept failed"); continue; }
         std::cout << "Client connected: fd=" << clientFd << "\n";
         sendAll(clientFd, "Welcome to MatchCore. Type HELP for commands.\n");
         pool_.submit([this, clientFd] { handleClient(clientFd); });
+    }
+
+    std::cout << "Server stopped.\n";
+}
+
+void Server::stop() {
+    stopping_ = true;
+    if (listenFd_ >= 0) {
+        close(listenFd_); // unblocks accept() in run()
     }
 }
 
@@ -121,7 +131,6 @@ void Server::handleLine(const std::string& line, int clientFd, ClientSession& se
         iss >> password;
         std::string name;
         std::getline(iss, name);
-        // getline includes the leading space left after >> password — trim it
         if (!name.empty() && name[0] == ' ') name.erase(0, 1);
 
         if (password.empty() || name.empty()) {
@@ -130,7 +139,7 @@ void Server::handleLine(const std::string& line, int clientFd, ClientSession& se
             std::string accountNumber;
             if (userStore_.registerUser(name, password, accountNumber)) {
                 response << "Account created for " << name << ". Your account number is "
-                        << accountNumber << " — save it, you'll need it to log in.\n";
+                          << accountNumber << " — save it, you'll need it to log in.\n";
             } else {
                 response << "Registration failed.\n";
             }
@@ -155,7 +164,7 @@ void Server::handleLine(const std::string& line, int clientFd, ClientSession& se
                   << "-----------------------\n";
     } else if (cmd == "HELP") {
         response << "Commands:\n"
-                  << "  REGISTER <name> <password>\n"
+                  << "  REGISTER <password> <full name>\n"
                   << "  LOGIN <accountNumber> <password>\n"
                   << "  BUY <price> <qty>\n"
                   << "  SELL <price> <qty>\n"

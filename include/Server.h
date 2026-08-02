@@ -16,9 +16,12 @@ class Server {
 public:
     Server(int port, std::size_t threadCount, const std::string& dbPath);
     void run();
+    void stop();
 
 private:
     int port_;
+    int listenFd_ = -1;
+    std::atomic<bool> stopping_{false};
     OrderBook book_;
     ThreadPool pool_;
     TradeLogger logger_;
