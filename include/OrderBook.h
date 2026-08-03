@@ -10,9 +10,11 @@
 #include <mutex>
 #include <optional>
 
+enum class TimeInForce { GTC, IOC };
+
 class OrderBook {
     public:
-        std::vector<Trade> addOrder(Order order);
+        std::vector<Trade> addOrder(Order order, TimeInForce tif = TimeInForce::GTC);
         bool cancelOrder(uint64_t orderId);
         std::optional<double> bestBid() const;
         std::optional<double> bestAsk() const;

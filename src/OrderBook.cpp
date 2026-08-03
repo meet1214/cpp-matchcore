@@ -3,7 +3,7 @@
 #include <mutex>
 #include <vector>
 
-std::vector<Trade> OrderBook::addOrder(Order order) {
+std::vector<Trade> OrderBook::addOrder(Order order, TimeInForce tif) {
     std::lock_guard<std::mutex> lock(mutex_);
 
     order.sequence = nextOrderSequence_++;
@@ -15,7 +15,7 @@ std::vector<Trade> OrderBook::addOrder(Order order) {
         trades = matchAgainstBids(order);
     }
 
-    if(order.quantity > 0) {
+    if(order.quantity > 0 && tif == TimeInForce::GTC) {
         if(order.side == Side::Buy) {
             bids_[order.price].push_back(order);
         } else {
@@ -36,7 +36,6 @@ std::vector<Trade> OrderBook::matchAgainstAsks(Order& incoming) {
         if(incoming.price < bestLevel->first) {
             break;
         }
-
         auto &dq = bestLevel->second;
         Order& resting = dq.front();
 

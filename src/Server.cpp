@@ -1,6 +1,8 @@
 #include "Server.h"
+#include "OrderBook.h"
 #include <iostream>
 #include <sstream>
+#include <string>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -94,11 +96,16 @@ void Server::handleLine(const std::string& line, int clientFd, ClientSession& se
             double price;
             uint64_t qty;
             iss >> price >> qty;
+
             if (iss.fail() || price <= 0 || qty == 0) {
-                response << "Invalid order. Usage: BUY <price> <qty> or SELL <price> <qty>, both positive.\n";
+                response << "Invalid order. Usage: BUY <price> <qty> [IOC] or SELL <price> <qty> [IOC], both positive.\n";
             } else {
+                std::string tifToken;
+                iss >> tifToken;
+                TimeInForce tif = (tifToken == "IOC") ? TimeInForce::IOC : TimeInForce::GTC;
+
                 Order order{nextOrderId_++, session.clientId, cmd == "BUY" ? Side::Buy : Side::Sell, price, qty, 0};
-                auto trades = book_.addOrder(order);
+                auto trades = book_.addOrder(order, tif);
                 for (auto& t : trades) logger_.log(t);
                 orderStore_.save(book_.snapshot());
 
@@ -106,12 +113,19 @@ void Server::handleLine(const std::string& line, int clientFd, ClientSession& se
                 for (auto& t : trades) filled += t.quantity;
                 uint64_t remaining = qty - filled;
 
-                response << "Order #" << order.id << " placed: " << cmd << " " << qty << " @ " << price << "\n";
+                response << "Order #" << order.id << " placed: " << cmd << " " << qty << " @ " << price;
+                if (tif == TimeInForce::IOC) response << " (IOC)";
+                response << "\n";
+
                 for (auto& t : trades) {
                     response << "  -> Matched " << t.quantity << " @ " << t.price << "\n";
                 }
                 if (remaining > 0) {
-                    response << "  -> " << remaining << " resting on the book\n";
+                    if (tif == TimeInForce::IOC) {
+                        response << "  -> " << remaining << " cancelled (IOC, not resting)\n";
+                    } else {
+                        response << "  -> " << remaining << " resting on the book\n";
+                    }
                 } else if (!trades.empty()) {
                     response << "  -> Fully filled\n";
                 }
@@ -173,14 +187,13 @@ void Server::handleLine(const std::string& line, int clientFd, ClientSession& se
         response << "Commands:\n"
                   << "  REGISTER <password> <full name>\n"
                   << "  LOGIN <accountNumber> <password>\n"
-                  << "  BUY <price> <qty>\n"
-                  << "  SELL <price> <qty>\n"
+                  << "  BUY <price> <qty> [IOC]\n"
+                  << "  SELL <price> <qty> [IOC]\n"
                   << "  CANCEL <orderId>\n"
                   << "  BOOK\n"
                   << "  HELP\n";
     } else if (cmd == "QUIT") {
-    response << "Goodbye!\n";
-    
+        response << "Goodbye!\n";
     } else {
         response << "Unknown command '" << cmd << "'. Type HELP to see available commands.\n";
     }
