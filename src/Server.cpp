@@ -17,7 +17,12 @@ void sendAll(int fd, const std::string& data) {
 }
 
 Server::Server(int port, std::size_t threadCount, const std::string& dbPath)
-    : port_(port), pool_(threadCount), logger_(dbPath), userStore_(dbPath) {}
+    : port_(port), pool_(threadCount), logger_(dbPath), userStore_(dbPath), orderStore_(dbPath) {
+    for (const auto& o : orderStore_.loadAll()) {
+        book_.restoreOrder(o);
+    }
+    std::cout << "Restored " << (book_.bidDepth() + book_.askDepth()) << " units of resting orders.\n";
+}
 
 void Server::run() {
     listenFd_ = socket(AF_INET, SOCK_STREAM, 0);
@@ -52,7 +57,7 @@ void Server::run() {
 void Server::stop() {
     stopping_ = true;
     if (listenFd_ >= 0) {
-        close(listenFd_); // unblocks accept() in run()
+        close(listenFd_);
     }
 }
 
@@ -95,6 +100,7 @@ void Server::handleLine(const std::string& line, int clientFd, ClientSession& se
                 Order order{nextOrderId_++, session.clientId, cmd == "BUY" ? Side::Buy : Side::Sell, price, qty, 0};
                 auto trades = book_.addOrder(order);
                 for (auto& t : trades) logger_.log(t);
+                orderStore_.save(book_.snapshot());
 
                 uint64_t filled = 0;
                 for (auto& t : trades) filled += t.quantity;
@@ -150,6 +156,7 @@ void Server::handleLine(const std::string& line, int clientFd, ClientSession& se
             response << "You must log in before cancelling orders.\n";
         } else {
             bool ok = book_.cancelOrder(id);
+            if (ok) orderStore_.save(book_.snapshot());
             response << (ok ? "Order #" + std::to_string(id) + " cancelled.\n"
                             : "No resting order found with ID " + std::to_string(id) + ".\n");
         }

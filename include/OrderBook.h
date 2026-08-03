@@ -18,6 +18,8 @@ class OrderBook {
         std::optional<double> bestAsk() const;
         uint64_t bidDepth() const;
         uint64_t askDepth() const;
+        std::vector<Order> snapshot() const;
+        void restoreOrder(const Order& order);
     
     private:
         struct Location{ double price; Side side; };

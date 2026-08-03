@@ -165,3 +165,28 @@ uint64_t OrderBook::askDepth() const {
     }
     return total;
 }
+
+std::vector<Order> OrderBook::snapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<Order> result;
+    for (const auto& [price, dq] : bids_) {
+        for (const auto& o : dq) result.push_back(o);
+    }
+    for (const auto& [price, dq] : asks_) {
+        for (const auto& o : dq) result.push_back(o);
+    }
+    return result;
+}
+
+void OrderBook::restoreOrder(const Order& order) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (order.side == Side::Buy) {
+        bids_[order.price].push_back(order);
+    } else {
+        asks_[order.price].push_back(order);
+    }
+    orderIndex_[order.id] = Location{order.price, order.side};
+    if (order.sequence >= nextOrderSequence_) {
+        nextOrderSequence_ = order.sequence + 1;
+    }
+}

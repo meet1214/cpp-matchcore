@@ -27,6 +27,7 @@ add_executable(matchcore_server
     src/OrderBook.cpp
     src/TradeLogger.cpp
     src/UserStore.cpp
+    src/OrderStore.cpp
 )
 target_include_directories(matchcore_server PRIVATE include)
 target_link_libraries(matchcore_server PRIVATE SQLite3::SQLite3 OpenSSL::Crypto)

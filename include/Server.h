@@ -3,6 +3,7 @@
 #include "ThreadPool.h"
 #include "TradeLogger.h"
 #include "UserStore.h"
+#include "OrderStore.h"
 #include <atomic>
 #include <cstdint>
 #include <string>
@@ -26,6 +27,7 @@ private:
     ThreadPool pool_;
     TradeLogger logger_;
     UserStore userStore_;
+    OrderStore orderStore_;
     std::atomic<uint64_t> nextOrderId_{1};
 
     void handleClient(int clientFd);
