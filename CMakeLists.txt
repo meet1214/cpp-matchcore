@@ -33,3 +33,18 @@ target_include_directories(matchcore_server PRIVATE include)
 target_link_libraries(matchcore_server PRIVATE SQLite3::SQLite3 OpenSSL::Crypto)
 add_executable(matchcore_client src/Client.cpp)
 target_include_directories(matchcore_client PRIVATE include)
+
+add_executable(matchcore_userstore_tests
+    tests/test_userstore.cpp
+    src/UserStore.cpp
+)
+
+target_include_directories(matchcore_userstore_tests PRIVATE include)
+target_link_libraries(matchcore_userstore_tests PRIVATE SQLite3::SQLite3 OpenSSL::Crypto)
+
+add_executable(matchcore_tradelogger_tests
+    tests/test_tradelogger.cpp
+    src/TradeLogger.cpp
+)
+target_include_directories(matchcore_tradelogger_tests PRIVATE include)
+target_link_libraries(matchcore_tradelogger_tests PRIVATE SQLite3::SQLite3)
