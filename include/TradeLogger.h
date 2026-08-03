@@ -9,7 +9,7 @@ public:
     explicit TradeLogger(const std::string& dbPath);
     ~TradeLogger();
 
-    void log(const Trade& trade);
+    void log(const std::string& symbol, const Trade& trade);
 
 private:
     sqlite3* db_;

@@ -5,9 +5,11 @@
 #include "UserStore.h"
 #include "OrderStore.h"
 #include <atomic>
-#include <cstdint>
-#include <string>
 #include <chrono>
+#include <cstdint>
+#include <mutex>
+#include <string>
+#include <unordered_map>
 
 struct ClientSession {
     bool authenticated = false;
@@ -26,13 +28,17 @@ private:
     int port_;
     int listenFd_ = -1;
     std::atomic<bool> stopping_{false};
-    OrderBook book_;
+
+    std::unordered_map<std::string, OrderBook> books_;
+    std::mutex booksMutex_;
+
     ThreadPool pool_;
     TradeLogger logger_;
     UserStore userStore_;
     OrderStore orderStore_;
     std::atomic<uint64_t> nextOrderId_{1};
 
+    OrderBook& getBook(const std::string& symbol);
     void handleClient(int clientFd);
     void handleLine(const std::string& line, int clientFd, ClientSession& session);
 };

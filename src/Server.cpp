@@ -20,10 +20,17 @@ void sendAll(int fd, const std::string& data) {
 
 Server::Server(int port, std::size_t threadCount, const std::string& dbPath)
     : port_(port), pool_(threadCount), logger_(dbPath), userStore_(dbPath), orderStore_(dbPath) {
-    for (const auto& o : orderStore_.loadAll()) {
-        book_.restoreOrder(o);
+    auto restored = orderStore_.loadAll();
+    for (auto& [symbol, orders] : restored) {
+        OrderBook& book = getBook(symbol);
+        for (const auto& o : orders) book.restoreOrder(o);
     }
-    std::cout << "Restored " << (book_.bidDepth() + book_.askDepth()) << " units of resting orders.\n";
+    std::cout << "Restored resting orders for " << restored.size() << " symbol(s).\n";
+}
+
+OrderBook& Server::getBook(const std::string& symbol) {
+    std::lock_guard<std::mutex> lock(booksMutex_);
+    return books_[symbol];
 }
 
 void Server::run() {
@@ -84,49 +91,51 @@ void Server::handleClient(int clientFd) {
 }
 
 void Server::handleLine(const std::string& line, int clientFd, ClientSession& session) {
-    std::istringstream iss(line);
-    std::string cmd;
-    iss >> cmd;
-    std::ostringstream response;
     auto now = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - session.windowStart).count();
-
     if (elapsed >= 1) {
         session.requestCount = 0;
         session.windowStart = now;
     }
-
     session.requestCount++;
-    if (session.requestCount > 10) { 
+    if (session.requestCount > 10) {
         sendAll(clientFd, "Rate limit exceeded. Slow down.\n");
         return;
     }
+
+    std::istringstream iss(line);
+    std::string cmd;
+    iss >> cmd;
+    std::ostringstream response;
 
     if (cmd == "BUY" || cmd == "SELL") {
         if (!session.authenticated) {
             response << "You must log in before placing orders. Use the login menu.\n";
         } else {
+            std::string symbol;
             double price;
             uint64_t qty;
-            iss >> price >> qty;
+            iss >> symbol >> price >> qty;
 
-            if (iss.fail() || price <= 0 || qty == 0) {
-                response << "Invalid order. Usage: BUY <price> <qty> [IOC] or SELL <price> <qty> [IOC], both positive.\n";
+            if (iss.fail() || symbol.empty() || price <= 0 || qty == 0) {
+                response << "Invalid order. Usage: BUY <symbol> <price> <qty> [IOC]\n";
             } else {
                 std::string tifToken;
                 iss >> tifToken;
                 TimeInForce tif = (tifToken == "IOC") ? TimeInForce::IOC : TimeInForce::GTC;
 
                 Order order{nextOrderId_++, session.clientId, cmd == "BUY" ? Side::Buy : Side::Sell, price, qty, 0};
-                auto trades = book_.addOrder(order, tif);
-                for (auto& t : trades) logger_.log(t);
-                orderStore_.save(book_.snapshot());
+                OrderBook& book = getBook(symbol);
+                auto trades = book.addOrder(order, tif);
+                for (auto& t : trades) logger_.log(symbol, t);
+                orderStore_.save(symbol, book.snapshot());
 
                 uint64_t filled = 0;
                 for (auto& t : trades) filled += t.quantity;
                 uint64_t remaining = qty - filled;
 
-                response << "Order #" << order.id << " placed: " << cmd << " " << qty << " @ " << price;
+                response << "Order #" << order.id << " placed: " << cmd << " " << symbol
+                          << " " << qty << " @ " << price;
                 if (tif == TimeInForce::IOC) response << " (IOC)";
                 response << "\n";
 
@@ -178,32 +187,56 @@ void Server::handleLine(const std::string& line, int clientFd, ClientSession& se
             }
         }
     } else if (cmd == "CANCEL") {
-        uint64_t id; iss >> id;
+        std::string symbol;
+        uint64_t id;
+        iss >> symbol >> id;
         if (!session.authenticated) {
             response << "You must log in before cancelling orders.\n";
+        } else if (iss.fail() || symbol.empty()) {
+            response << "Usage: CANCEL <symbol> <orderId>\n";
         } else {
-            bool ok = book_.cancelOrder(id);
-            if (ok) orderStore_.save(book_.snapshot());
+            OrderBook& book = getBook(symbol);
+            bool ok = book.cancelOrder(id);
+            if (ok) orderStore_.save(symbol, book.snapshot());
             response << (ok ? "Order #" + std::to_string(id) + " cancelled.\n"
-                            : "No resting order found with ID " + std::to_string(id) + ".\n");
+                            : "No resting order found with ID " + std::to_string(id) + " for " + symbol + ".\n");
         }
     } else if (cmd == "BOOK") {
-        auto bid = book_.bestBid();
-        auto ask = book_.bestAsk();
-        response << "----- Order Book -----\n"
-                  << "Best Bid: " << (bid ? std::to_string(*bid) : "none")
-                  << "  (depth: " << book_.bidDepth() << ")\n"
-                  << "Best Ask: " << (ask ? std::to_string(*ask) : "none")
-                  << "  (depth: " << book_.askDepth() << ")\n"
-                  << "-----------------------\n";
+        std::string symbol;
+        iss >> symbol;
+        if (symbol.empty()) {
+            std::lock_guard<std::mutex> lock(booksMutex_);
+            if (books_.empty()) {
+                response << "No symbols traded yet.\n";
+            } else {
+                response << "----- Active Symbols -----\n";
+                for (auto& [sym, book] : books_) {
+                    auto bid = book.bestBid();
+                    auto ask = book.bestAsk();
+                    response << sym << ": bid=" << (bid ? std::to_string(*bid) : "none")
+                              << " ask=" << (ask ? std::to_string(*ask) : "none") << "\n";
+                }
+                response << "---------------------------\n";
+            }
+        } else {
+            OrderBook& book = getBook(symbol);
+            auto bid = book.bestBid();
+            auto ask = book.bestAsk();
+            response << "----- " << symbol << " Order Book -----\n"
+                      << "Best Bid: " << (bid ? std::to_string(*bid) : "none")
+                      << "  (depth: " << book.bidDepth() << ")\n"
+                      << "Best Ask: " << (ask ? std::to_string(*ask) : "none")
+                      << "  (depth: " << book.askDepth() << ")\n"
+                      << "-----------------------\n";
+        }
     } else if (cmd == "HELP") {
         response << "Commands:\n"
                   << "  REGISTER <password> <full name>\n"
                   << "  LOGIN <accountNumber> <password>\n"
-                  << "  BUY <price> <qty> [IOC]\n"
-                  << "  SELL <price> <qty> [IOC]\n"
-                  << "  CANCEL <orderId>\n"
-                  << "  BOOK\n"
+                  << "  BUY <symbol> <price> <qty> [IOC]\n"
+                  << "  SELL <symbol> <price> <qty> [IOC]\n"
+                  << "  CANCEL <symbol> <orderId>\n"
+                  << "  BOOK [symbol]\n"
                   << "  HELP\n";
     } else if (cmd == "QUIT") {
         response << "Goodbye!\n";

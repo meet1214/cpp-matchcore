@@ -21,8 +21,8 @@ int main() {
 
     {
         TradeLogger logger(dbPath);
-        logger.log(Trade{1, 2, 50.0, 10, 0});
-        logger.log(Trade{3, 4, 51.5, 5, 1});
+        logger.log("AAPL", Trade{1, 2, 50.0, 10, 0});
+        logger.log("GOOG", Trade{3, 4, 51.5, 5, 1});
     }
 
     sqlite3* db;
@@ -35,8 +35,7 @@ int main() {
     sqlite3_finalize(stmt);
     check(count == 2, "both logged trades were persisted");
 
-    sqlite3_prepare_v2(db, "SELECT price, quantity FROM trades WHERE sequence = 0;", -1, &stmt, nullptr);
-    sqlite3_step(stmt);
+    sqlite3_prepare_v2(db, "SELECT price, quantity FROM trades WHERE symbol = 'AAPL' AND sequence = 0;", -1, &stmt, nullptr);    sqlite3_step(stmt);
     double price = sqlite3_column_double(stmt, 0);
     int qty = sqlite3_column_int(stmt, 1);
     sqlite3_finalize(stmt);

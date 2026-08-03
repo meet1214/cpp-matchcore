@@ -81,7 +81,7 @@ int main() {
     }
 
     std::cout << "\n===== Welcome! =====\n"
-               << "Commands: BUY <price> <qty> | SELL <price> <qty> | CANCEL <id> | BOOK | HELP | QUIT\n\n";
+               << "Commands: BUY <symbol> <price> <qty> [IOC] | SELL <price> <qty> | CANCEL <id> | BOOK | HELP | QUIT\n\n";
 
     std::string line;
     while (true) {
