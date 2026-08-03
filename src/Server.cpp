@@ -8,7 +8,8 @@
 #include <netinet/in.h>
 
 namespace {
-void sendAll(int fd, const std::string& data) {
+void sendAllLocked(int fd, const std::string& data, std::mutex& writeMutex) {
+    std::lock_guard<std::mutex> lock(writeMutex);
     size_t sent = 0;
     while (sent < data.size()) {
         ssize_t n = write(fd, data.c_str() + sent, data.size() - sent);
@@ -31,6 +32,16 @@ Server::Server(int port, std::size_t threadCount, const std::string& dbPath)
 OrderBook& Server::getBook(const std::string& symbol) {
     std::lock_guard<std::mutex> lock(booksMutex_);
     return books_[symbol];
+}
+
+void Server::broadcast(const std::string& symbol, const Trade& t) {
+    std::string msg = "[MARKET] " + symbol + " traded " + std::to_string(t.quantity) +
+                       " @ " + std::to_string(t.price) + "\n";
+
+    std::lock_guard<std::mutex> lock(clientsMutex_);
+    for (auto& [fd, mtx] : clientWriteMutexes_) {
+        sendAllLocked(fd, msg, *mtx);
+    }
 }
 
 void Server::run() {
@@ -56,7 +67,6 @@ void Server::run() {
         if (stopping_) break;
         if (clientFd < 0) { perror("accept failed"); continue; }
         std::cout << "Client connected: fd=" << clientFd << "\n";
-        sendAll(clientFd, "Welcome to MatchCore. Type HELP for commands.\n");
         pool_.submit([this, clientFd] { handleClient(clientFd); });
     }
 
@@ -72,6 +82,15 @@ void Server::stop() {
 
 void Server::handleClient(int clientFd) {
     ClientSession session;
+    session.writeMutex = std::make_shared<std::mutex>();
+
+    {
+        std::lock_guard<std::mutex> lock(clientsMutex_);
+        clientWriteMutexes_[clientFd] = session.writeMutex;
+    }
+
+    sendAllLocked(clientFd, "Welcome to MatchCore. Type HELP for commands.\n", *session.writeMutex);
+
     char buf[1024];
     std::string leftover;
     while (true) {
@@ -86,6 +105,12 @@ void Server::handleClient(int clientFd) {
             handleLine(line, clientFd, session);
         }
     }
+
+    {
+        std::lock_guard<std::mutex> lock(clientsMutex_);
+        clientWriteMutexes_.erase(clientFd);
+    }
+
     close(clientFd);
     std::cout << "Client disconnected: fd=" << clientFd << "\n";
 }
@@ -99,7 +124,7 @@ void Server::handleLine(const std::string& line, int clientFd, ClientSession& se
     }
     session.requestCount++;
     if (session.requestCount > 10) {
-        sendAll(clientFd, "Rate limit exceeded. Slow down.\n");
+        sendAllLocked(clientFd, "Rate limit exceeded. Slow down.\n", *session.writeMutex);
         return;
     }
 
@@ -127,7 +152,10 @@ void Server::handleLine(const std::string& line, int clientFd, ClientSession& se
                 Order order{nextOrderId_++, session.clientId, cmd == "BUY" ? Side::Buy : Side::Sell, price, qty, 0};
                 OrderBook& book = getBook(symbol);
                 auto trades = book.addOrder(order, tif);
-                for (auto& t : trades) logger_.log(symbol, t);
+                for (auto& t : trades) {
+                    logger_.log(symbol, t);
+                    broadcast(symbol, t);
+                }
                 orderStore_.save(symbol, book.snapshot());
 
                 uint64_t filled = 0;
@@ -244,5 +272,5 @@ void Server::handleLine(const std::string& line, int clientFd, ClientSession& se
         response << "Unknown command '" << cmd << "'. Type HELP to see available commands.\n";
     }
 
-    sendAll(clientFd, response.str());
+    sendAllLocked(clientFd, response.str(), *session.writeMutex);
 }

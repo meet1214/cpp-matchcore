@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -16,6 +17,7 @@ struct ClientSession {
     uint64_t clientId = 0;
     int requestCount = 0;
     std::chrono::steady_clock::time_point windowStart = std::chrono::steady_clock::now();
+    std::shared_ptr<std::mutex> writeMutex;
 };
 
 class Server {
@@ -32,6 +34,9 @@ private:
     std::unordered_map<std::string, OrderBook> books_;
     std::mutex booksMutex_;
 
+    std::unordered_map<int, std::shared_ptr<std::mutex>> clientWriteMutexes_;
+    std::mutex clientsMutex_;
+
     ThreadPool pool_;
     TradeLogger logger_;
     UserStore userStore_;
@@ -39,6 +44,7 @@ private:
     std::atomic<uint64_t> nextOrderId_{1};
 
     OrderBook& getBook(const std::string& symbol);
+    void broadcast(const std::string& symbol, const Trade& t);
     void handleClient(int clientFd);
     void handleLine(const std::string& line, int clientFd, ClientSession& session);
 };
