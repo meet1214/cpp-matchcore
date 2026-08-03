@@ -5,6 +5,9 @@ OrderStore::OrderStore(const std::string& dbPath) {
     if (sqlite3_open(dbPath.c_str(), &db_) != SQLITE_OK) {
         throw std::runtime_error("Failed to open DB: " + std::string(sqlite3_errmsg(db_)));
     }
+
+    sqlite3_exec(db_, "PRAGMA journal_mode=WAL;", nullptr, nullptr, nullptr);
+    sqlite3_busy_timeout(db_, 5000); // retry for up to 5 seconds
     const char* createSql =
         "CREATE TABLE IF NOT EXISTS resting_orders ("
         "id INTEGER PRIMARY KEY,"

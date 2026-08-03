@@ -178,6 +178,9 @@ void Server::handleLine(const std::string& line, int clientFd, ClientSession& se
                   << "  CANCEL <orderId>\n"
                   << "  BOOK\n"
                   << "  HELP\n";
+    } else if (cmd == "QUIT") {
+    response << "Goodbye!\n";
+    
     } else {
         response << "Unknown command '" << cmd << "'. Type HELP to see available commands.\n";
     }

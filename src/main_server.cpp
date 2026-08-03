@@ -10,7 +10,7 @@ void handleSignal(int) {
 }
 
 int main() {
-    Server server(9000, 4, "matchcore.db");
+    Server server(9000, 20, "matchcore.db");
     g_server = &server;
 
     std::signal(SIGINT, handleSignal);

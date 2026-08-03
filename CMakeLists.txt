@@ -48,3 +48,8 @@ add_executable(matchcore_tradelogger_tests
 )
 target_include_directories(matchcore_tradelogger_tests PRIVATE include)
 target_link_libraries(matchcore_tradelogger_tests PRIVATE SQLite3::SQLite3)
+
+add_executable(matchcore_stress_test tests/stress_test.cpp)
+target_include_directories(matchcore_stress_test PRIVATE include)
+find_package(Threads REQUIRED)
+target_link_libraries(matchcore_stress_test PRIVATE Threads::Threads)
