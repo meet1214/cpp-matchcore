@@ -89,12 +89,13 @@ Plain-text, newline-delimited, over TCP:
 | `BOOK` | `BOOK [symbol]` — omit symbol to list all active symbols |
 | `HELP` | lists all commands |
 | `QUIT` | disconnect |
-
 ## Project structure
 
-include/ headers (Order, Trade, OrderBook, Server, UserStore,
-TradeLogger, OrderStore, Logger, ThreadPool)
-src/ implementations + entry points (main.cpp, main_server.cpp,
-client.cpp)
-tests/ unit tests + concurrency stress test
-docs/ design notes and known limitations
+```
+include/    headers (Order, Trade, OrderBook, Server, UserStore,
+            TradeLogger, OrderStore, Logger, ThreadPool)
+src/        implementations + entry points (main.cpp, main_server.cpp,
+            client.cpp)
+tests/      unit tests + concurrency stress test
+docs/       design notes and known limitations
+```
