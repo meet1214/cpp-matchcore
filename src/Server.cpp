@@ -88,6 +88,19 @@ void Server::handleLine(const std::string& line, int clientFd, ClientSession& se
     std::string cmd;
     iss >> cmd;
     std::ostringstream response;
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - session.windowStart).count();
+
+    if (elapsed >= 1) {
+        session.requestCount = 0;
+        session.windowStart = now;
+    }
+
+    session.requestCount++;
+    if (session.requestCount > 10) { 
+        sendAll(clientFd, "Rate limit exceeded. Slow down.\n");
+        return;
+    }
 
     if (cmd == "BUY" || cmd == "SELL") {
         if (!session.authenticated) {

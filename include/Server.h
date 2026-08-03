@@ -7,10 +7,13 @@
 #include <atomic>
 #include <cstdint>
 #include <string>
+#include <chrono>
 
 struct ClientSession {
     bool authenticated = false;
     uint64_t clientId = 0;
+    int requestCount = 0;
+    std::chrono::steady_clock::time_point windowStart = std::chrono::steady_clock::now();
 };
 
 class Server {
