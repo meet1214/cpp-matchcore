@@ -2,3 +2,7 @@ build/
 *.o
 .vscode/
 .cache/
+matchcore.log
+matchcore.db
+matchcore.db-shm
+matchcore.db-wal

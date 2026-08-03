@@ -4,6 +4,7 @@
 #include "TradeLogger.h"
 #include "UserStore.h"
 #include "OrderStore.h"
+#include "Logger.h"
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -41,6 +42,7 @@ private:
     TradeLogger logger_;
     UserStore userStore_;
     OrderStore orderStore_;
+    Logger appLog_;
     std::atomic<uint64_t> nextOrderId_{1};
 
     OrderBook& getBook(const std::string& symbol);

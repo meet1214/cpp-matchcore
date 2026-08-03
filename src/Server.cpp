@@ -1,8 +1,9 @@
 #include "Server.h"
 #include "OrderBook.h"
-#include <iostream>
 #include <sstream>
 #include <string>
+#include <cstring>
+#include <cerrno>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -20,13 +21,14 @@ void sendAllLocked(int fd, const std::string& data, std::mutex& writeMutex) {
 }
 
 Server::Server(int port, std::size_t threadCount, const std::string& dbPath)
-    : port_(port), pool_(threadCount), logger_(dbPath), userStore_(dbPath), orderStore_(dbPath) {
+    : port_(port), pool_(threadCount), logger_(dbPath), userStore_(dbPath),
+      orderStore_(dbPath), appLog_("matchcore.log") {
     auto restored = orderStore_.loadAll();
     for (auto& [symbol, orders] : restored) {
         OrderBook& book = getBook(symbol);
         for (const auto& o : orders) book.restoreOrder(o);
     }
-    std::cout << "Restored resting orders for " << restored.size() << " symbol(s).\n";
+    appLog_.log(LogLevel::INFO, "Restored resting orders for " + std::to_string(restored.size()) + " symbol(s).");
 }
 
 OrderBook& Server::getBook(const std::string& symbol) {
@@ -46,7 +48,10 @@ void Server::broadcast(const std::string& symbol, const Trade& t) {
 
 void Server::run() {
     listenFd_ = socket(AF_INET, SOCK_STREAM, 0);
-    if (listenFd_ < 0) { perror("socket failed"); return; }
+    if (listenFd_ < 0) {
+        appLog_.log(LogLevel::ERROR, "socket failed: " + std::string(strerror(errno)));
+        return;
+    }
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
@@ -54,23 +59,30 @@ void Server::run() {
     addr.sin_port = htons(port_);
 
     if (bind(listenFd_, (sockaddr*)&addr, sizeof(addr)) < 0) {
-        perror("bind failed"); close(listenFd_); return;
+        appLog_.log(LogLevel::ERROR, "bind failed: " + std::string(strerror(errno)));
+        close(listenFd_);
+        return;
     }
     if (listen(listenFd_, 16) < 0) {
-        perror("listen failed"); close(listenFd_); return;
+        appLog_.log(LogLevel::ERROR, "listen failed: " + std::string(strerror(errno)));
+        close(listenFd_);
+        return;
     }
 
-    std::cout << "Listening on port " << port_ << "\n";
+    appLog_.log(LogLevel::INFO, "Listening on port " + std::to_string(port_));
 
     while (!stopping_) {
         int clientFd = accept(listenFd_, nullptr, nullptr);
         if (stopping_) break;
-        if (clientFd < 0) { perror("accept failed"); continue; }
-        std::cout << "Client connected: fd=" << clientFd << "\n";
+        if (clientFd < 0) {
+            appLog_.log(LogLevel::WARN, "accept failed: " + std::string(strerror(errno)));
+            continue;
+        }
+        appLog_.log(LogLevel::INFO, "Client connected: fd=" + std::to_string(clientFd));
         pool_.submit([this, clientFd] { handleClient(clientFd); });
     }
 
-    std::cout << "Server stopped.\n";
+    appLog_.log(LogLevel::INFO, "Server stopped.");
 }
 
 void Server::stop() {
@@ -112,7 +124,7 @@ void Server::handleClient(int clientFd) {
     }
 
     close(clientFd);
-    std::cout << "Client disconnected: fd=" << clientFd << "\n";
+    appLog_.log(LogLevel::INFO, "Client disconnected: fd=" + std::to_string(clientFd));
 }
 
 void Server::handleLine(const std::string& line, int clientFd, ClientSession& session) {
@@ -124,6 +136,7 @@ void Server::handleLine(const std::string& line, int clientFd, ClientSession& se
     }
     session.requestCount++;
     if (session.requestCount > 10) {
+        appLog_.log(LogLevel::WARN, "Rate limit exceeded: fd=" + std::to_string(clientFd));
         sendAllLocked(clientFd, "Rate limit exceeded. Slow down.\n", *session.writeMutex);
         return;
     }
@@ -158,6 +171,10 @@ void Server::handleLine(const std::string& line, int clientFd, ClientSession& se
                 }
                 orderStore_.save(symbol, book.snapshot());
 
+                appLog_.log(LogLevel::INFO, "Order #" + std::to_string(order.id) + " " + cmd + " " +
+                            symbol + " qty=" + std::to_string(qty) + " price=" + std::to_string(price) +
+                            " trades=" + std::to_string(trades.size()));
+
                 uint64_t filled = 0;
                 for (auto& t : trades) filled += t.quantity;
                 uint64_t remaining = qty - filled;
@@ -191,8 +208,10 @@ void Server::handleLine(const std::string& line, int clientFd, ClientSession& se
             if (userStore_.verifyUser(accountNumber, password, clientId)) {
                 session.authenticated = true;
                 session.clientId = clientId;
+                appLog_.log(LogLevel::INFO, "Login success: account=" + accountNumber);
                 response << "Welcome back! You're now logged in.\n";
             } else {
+                appLog_.log(LogLevel::WARN, "Login failed: account=" + accountNumber);
                 response << "Login failed: invalid account number or password.\n";
             }
         }
@@ -208,6 +227,7 @@ void Server::handleLine(const std::string& line, int clientFd, ClientSession& se
         } else {
             std::string accountNumber;
             if (userStore_.registerUser(name, password, accountNumber)) {
+                appLog_.log(LogLevel::INFO, "New account registered: " + accountNumber + " (" + name + ")");
                 response << "Account created for " << name << ". Your account number is "
                           << accountNumber << " — save it, you'll need it to log in.\n";
             } else {
